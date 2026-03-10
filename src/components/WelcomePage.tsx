@@ -1,12 +1,19 @@
 import React, { useRef } from 'react'
 import { useStore } from '../store'
-import { parseCSV, parseJSON, parseXLSX, generateSampleData, generateId } from '../lib/utils'
-import { FileSpreadsheet, Upload, Plus, Database, Sun, Moon } from 'lucide-react'
+import { parseCSV, parseJSON, parseXLSX, generateSampleData, generateId, createBlankGrid, toLetterColumns } from '../lib/utils'
+import { electronImport } from '../lib/fileManager'
+import { Upload, Plus, Database, Sun, Moon } from 'lucide-react'
+import { Logo } from './Logo'
 import { Column, Row } from '../types'
 
 export function WelcomePage() {
   const store = useStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleImportClick = async () => {
+    const handled = await electronImport(store)
+    if (!handled) fileInputRef.current?.click()
+  }
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -21,7 +28,8 @@ export function WelcomePage() {
           const sheets = parseXLSX(buffer)
           sheets.forEach((sheet, i) => {
             if (sheet.columns.length > 0) {
-              store.loadData(sheet.columns, sheet.rows, sheets.length > 1 ? `${name} - Sheet ${i + 1}` : name)
+              const converted = toLetterColumns(sheet)
+              store.loadData(converted.columns, converted.rows, sheets.length > 1 ? `${name} - Sheet ${i + 1}` : name)
             }
           })
         } catch (err) {
@@ -40,7 +48,8 @@ export function WelcomePage() {
           } else {
             data = parseCSV(text)
           }
-          store.loadData(data.columns, data.rows, name)
+          const converted = toLetterColumns(data)
+          store.loadData(converted.columns, converted.rows, name)
         } catch (err) {
           console.error('Failed to parse file:', err)
         }
@@ -51,30 +60,24 @@ export function WelcomePage() {
   }
 
   const handleNewSheet = () => {
-    const id = generateId()
-    const cols: Column[] = [
-      { id: generateId(), name: 'A', type: 'string', width: 150 },
-      { id: generateId(), name: 'B', type: 'string', width: 150 },
-      { id: generateId(), name: 'C', type: 'string', width: 150 },
-    ]
-    const rows: Row[] = Array.from({ length: 10 }, () => {
-      const cells: Record<string, any> = {}
-      cols.forEach(c => { cells[c.id] = null })
-      return { id: generateId(), cells }
-    })
-    store.loadData(cols, rows, 'Untitled')
+    const { columns, rows } = createBlankGrid(26, 100)
+    store.loadData(columns, rows, 'Untitled')
   }
 
   const handleLoadSample = () => {
     const data = generateSampleData()
-    store.loadData(data.columns, data.rows, 'Sample — GitHub Repos')
+    const converted = toLetterColumns(data)
+    store.loadData(converted.columns, converted.rows, 'Sample — GitHub Repos')
   }
 
   return (
     <div className="h-screen flex flex-col bg-ds-bg text-ds-text">
       {/* Title bar */}
       <div className="drag-region h-8 flex items-center pl-[80px] pr-4 bg-ds-surface border-b border-ds-border shrink-0">
-        <span className="no-drag text-xs font-semibold text-ds-accent tracking-wide">DEVSHEETS</span>
+        <div className="no-drag flex items-center gap-2">
+          <Logo size={20} />
+          <span className="text-xs font-bold text-ds-text">Dev<span className="text-ds-accent">Sheets</span></span>
+        </div>
         <div className="flex-1" />
         <button
           onClick={() => store.toggleTheme()}
@@ -88,9 +91,11 @@ export function WelcomePage() {
       <div className="flex-1 flex items-center justify-center">
         <div className="max-w-lg w-full px-8">
           <div className="mb-10">
-            <div className="flex items-center gap-3 mb-2">
-              <FileSpreadsheet size={32} className="text-ds-accent" />
-              <h1 className="text-2xl font-bold text-ds-text">DevSheets</h1>
+            <div className="flex items-center gap-4 mb-2">
+              <Logo size={52} />
+              <div>
+                <h1 className="text-2xl font-bold text-ds-text">Dev<span className="text-ds-accent">Sheets</span></h1>
+              </div>
             </div>
             <p className="text-sm text-ds-textMuted leading-relaxed">
               A developer-friendly spreadsheet. Transparent sorts, composable filters, programmable pivots.
@@ -99,7 +104,7 @@ export function WelcomePage() {
 
           <div className="space-y-3">
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handleImportClick}
               className="w-full flex items-center gap-4 p-4 rounded-lg border border-ds-border bg-ds-surface hover:bg-ds-surface2 hover:border-ds-accent/40 transition-colors group text-left"
             >
               <div className="w-10 h-10 rounded-lg bg-ds-accent/10 flex items-center justify-center group-hover:bg-ds-accent/20">

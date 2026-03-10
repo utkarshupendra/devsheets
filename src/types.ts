@@ -41,6 +41,8 @@ export type FilterOperator =
   | 'is_empty'
   | 'not_empty'
   | 'regex'
+  | 'in'
+  | 'not_in'
 
 export interface PivotConfig {
   rowFields: string[]

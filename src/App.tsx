@@ -10,6 +10,7 @@ import { PipelineView } from './components/PipelineView'
 import { StatusBar } from './components/StatusBar'
 import { SheetTabs } from './components/SheetTabs'
 import { WelcomePage } from './components/WelcomePage'
+import { Logo } from './components/Logo'
 import { applySortRules, applyFilterRules, computePivot } from './lib/utils'
 import { Sun, Moon } from 'lucide-react'
 
@@ -21,7 +22,11 @@ export default function App() {
 
   const filteredRows = useMemo(() => {
     if (!sheet) return []
-    return applyFilterRules(sheet.rows, sheet.filterRules)
+    // Row 0 is the header row (original column names) — always pin it, filter only data rows
+    if (sheet.rows.length === 0) return []
+    const headerRow = sheet.rows[0]
+    const dataRows = applyFilterRules(sheet.rows.slice(1), sheet.filterRules)
+    return [headerRow, ...dataRows]
   }, [sheet?.rows, sheet?.filterRules])
 
   const sortedRows = useMemo(() => {
@@ -99,7 +104,10 @@ export default function App() {
     <div className="h-screen flex flex-col bg-ds-bg text-ds-text overflow-hidden">
       {/* Title bar with macOS traffic light padding */}
       <div className="drag-region h-8 flex items-center pl-[80px] pr-4 bg-ds-surface border-b border-ds-border shrink-0">
-        <span className="no-drag text-xs font-semibold text-ds-accent tracking-wide">DEVSHEETS</span>
+        <div className="no-drag flex items-center gap-2">
+          <Logo size={20} />
+          <span className="text-xs font-bold text-ds-text">Dev<span className="text-ds-accent">Sheets</span></span>
+        </div>
         <span className="ml-3 text-xs text-ds-textMuted">
           {sheet.name} — {sheet.rows.length} rows × {sheet.columns.length} cols
         </span>

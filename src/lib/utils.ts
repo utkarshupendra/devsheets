@@ -7,6 +7,57 @@ export function generateId(): string {
   return `${idBase}_${(++idCounter).toString(36)}`
 }
 
+/** Convert 0-based column index to Excel-style letter: 0→A, 25→Z, 26→AA, 27→AB... */
+export function colIndexToLetter(index: number): string {
+  let result = ''
+  let n = index
+  while (n >= 0) {
+    result = String.fromCharCode(65 + (n % 26)) + result
+    n = Math.floor(n / 26) - 1
+  }
+  return result
+}
+
+/** Create a blank grid with the given number of columns and rows */
+export function createBlankGrid(numCols: number, numRows: number): { columns: Column[]; rows: Row[] } {
+  const columns: Column[] = Array.from({ length: numCols }, (_, i) => ({
+    id: generateId(),
+    name: colIndexToLetter(i),
+    type: 'string' as const,
+    width: 120,
+  }))
+  const rows: Row[] = Array.from({ length: numRows }, () => {
+    const cells: Record<string, CellValue> = {}
+    columns.forEach(c => { cells[c.id] = null })
+    return { id: generateId(), cells }
+  })
+  return { columns, rows }
+}
+
+/**
+ * Convert parsed data with named columns into Excel-style letter columns,
+ * inserting the original column names as the first data row.
+ */
+export function toLetterColumns(data: { columns: Column[]; rows: Row[] }): { columns: Column[]; rows: Row[] } {
+  const letterCols: Column[] = data.columns.map((col, i) => ({
+    id: generateId(),
+    name: colIndexToLetter(i),
+    type: col.type,
+    width: Math.max(col.width, 120),
+  }))
+  // Build header row from original column names
+  const headerCells: Record<string, CellValue> = {}
+  letterCols.forEach((lc, i) => { headerCells[lc.id] = data.columns[i].name })
+  const headerRow: Row = { id: generateId(), cells: headerCells }
+  // Remap existing rows from old column IDs to new letter column IDs
+  const remappedRows: Row[] = data.rows.map(row => {
+    const cells: Record<string, CellValue> = {}
+    data.columns.forEach((oldCol, i) => { cells[letterCols[i].id] = row.cells[oldCol.id] })
+    return { id: generateId(), cells }
+  })
+  return { columns: letterCols, rows: [headerRow, ...remappedRows] }
+}
+
 export function inferColumnType(values: CellValue[]): Column['type'] {
   const sample = values.filter(v => v !== null && v !== '').slice(0, 50)
   if (sample.length === 0) return 'string'
@@ -144,27 +195,41 @@ export function parseJSON(text: string): { columns: Column[]; rows: Row[] } {
 
 export function parseXLSX(buffer: ArrayBuffer): { columns: Column[]; rows: Row[] }[] {
   const wb = XLSX.read(buffer, { type: 'array' })
-  return wb.SheetNames.map(name => {
-    const ws = wb.Sheets[name]
-    const jsonData: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws, { defval: null })
-    if (jsonData.length === 0) return { columns: [], rows: [] }
+  return wb.SheetNames.map(sheetName => {
+    const ws = wb.Sheets[sheetName]
+    // Use raw 2D array so we control header extraction (same approach as parseCSV)
+    const rawData: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+    if (rawData.length === 0) return { columns: [], rows: [] }
 
-    const keys = Object.keys(jsonData[0])
-    const columns: Column[] = keys.map(key => {
-      const values = jsonData.map(obj => (obj[key] ?? null) as CellValue)
-      return {
-        id: generateId(),
-        name: key,
-        type: inferColumnType(values),
-        width: Math.max(100, Math.min(300, key.length * 10 + 40)),
+    const headerRow = rawData[0] as unknown[]
+    const headers: string[] = headerRow.map((h, i) =>
+      h === null || h === undefined || String(h).trim() === '' ? colIndexToLetter(i) : String(h).trim()
+    )
+    const dataRows = rawData.slice(1)
+    const colCount = headers.length
+
+    // Infer column types from a sample
+    const colTypes: Column['type'][] = new Array(colCount)
+    for (let c = 0; c < colCount; c++) {
+      const sample: CellValue[] = []
+      for (let r = 0; r < Math.min(50, dataRows.length); r++) {
+        const v = dataRows[r]?.[c]
+        if (v !== null && v !== undefined && v !== '') sample.push(v as CellValue)
       }
-    })
+      colTypes[c] = inferColumnType(sample)
+    }
 
-    const rows: Row[] = jsonData.map(obj => {
+    const columns: Column[] = headers.map((name, i) => ({
+      id: generateId(),
+      name,
+      type: colTypes[i],
+      width: Math.max(100, Math.min(300, name.length * 10 + 40)),
+    }))
+
+    const rows: Row[] = dataRows.map(rawRow => {
       const cells: Record<string, CellValue> = {}
-      columns.forEach(col => {
-        const raw = obj[col.name]
-        let val: CellValue = raw === undefined || raw === null ? null : raw as CellValue
+      columns.forEach((col, c) => {
+        let val: CellValue = rawRow[c] === undefined ? null : rawRow[c] as CellValue
         if (col.type === 'number' && val !== null && val !== '') {
           const num = Number(val)
           val = isNaN(num) ? val : num
@@ -207,6 +272,23 @@ export function applySortRules(rows: Row[], sortRules: SortRule[], columns: Colu
   })
 }
 
+/** Parse an "in" list like ("A","B","C") or (1,2,3) into an array of trimmed strings.
+ *  Also handles unclosed parens like ("A","B", and trailing commas. */
+function parseInList(raw: string): string[] {
+  let s = raw.trim()
+  // Strip leading '(' and optional closing ')'
+  if (s.startsWith('(')) s = s.slice(1)
+  if (s.endsWith(')')) s = s.slice(0, -1)
+  // Split by comma, strip quotes and whitespace, filter empty (trailing comma)
+  return s.split(',').map(v => {
+    let t = v.trim()
+    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+      t = t.slice(1, -1)
+    }
+    return t
+  }).filter(t => t.length > 0)
+}
+
 export function evaluateFilter(value: CellValue, operator: FilterOperator, filterValue: string): boolean {
   const strVal = value === null ? '' : String(value)
   const numVal = Number(value)
@@ -228,6 +310,14 @@ export function evaluateFilter(value: CellValue, operator: FilterOperator, filte
     case 'regex':
       try { return new RegExp(filterValue, 'i').test(strVal) }
       catch { return false }
+    case 'in': {
+      const items = parseInList(filterValue)
+      return items.some(item => strVal.toLowerCase() === item.toLowerCase())
+    }
+    case 'not_in': {
+      const items = parseInList(filterValue)
+      return !items.some(item => strVal.toLowerCase() === item.toLowerCase())
+    }
     default: return true
   }
 }
@@ -243,42 +333,73 @@ export function applyFilterRules(rows: Row[], filterRules: FilterRule[]): Row[] 
   )
 }
 
-export function parseFilterExpression(expression: string, columns: Column[]): FilterRule[] {
+/**
+ * Build a map of alias→columnId from row-1 values (the original header names).
+ * This allows filters to reference columns by their original header name (e.g., "Name")
+ * even though the actual column name is a letter (e.g., "A").
+ */
+export function getColumnAliases(columns: Column[], rows: Row[]): Map<string, Column> {
+  const aliases = new Map<string, Column>()
+  if (rows.length === 0) return aliases
+  const firstRow = rows[0]
+  columns.forEach(col => {
+    const val = firstRow.cells[col.id]
+    if (val !== null && val !== undefined && String(val).trim()) {
+      aliases.set(String(val).toLowerCase(), col)
+    }
+  })
+  return aliases
+}
+
+export function parseFilterExpression(expression: string, columns: Column[], rows?: Row[]): FilterRule[] {
   const rules: FilterRule[] = []
   if (!expression.trim()) return rules
 
   const operatorPattern = /\s*(~|==|!=|>=|<=|>|<|contains|starts_with|ends_with)\s*/
   const parts = expression.split(/\s*&&\s*/)
 
-  // Sort columns by name length descending so longer names match first
-  const sortedCols = [...columns].sort((a, b) => b.name.length - a.name.length)
+  // Build alias map from row 1 (original header names)
+  const aliases = rows ? getColumnAliases(columns, rows) : new Map<string, Column>()
+
+  // Combine real column names + aliases for matching, sorted by length desc
+  type ColEntry = { name: string; col: Column }
+  const allNames: ColEntry[] = []
+  columns.forEach(c => allNames.push({ name: c.name, col: c }))
+  aliases.forEach((col, alias) => allNames.push({ name: alias, col }))
+  allNames.sort((a, b) => b.name.length - a.name.length)
+
+  const findCol = (name: string): Column | undefined => {
+    const lower = name.toLowerCase()
+    return columns.find(c => c.name.toLowerCase() === lower)
+      || aliases.get(lower)
+  }
 
   for (const part of parts) {
     const trimmed = part.trim()
 
     // Try quoted column name first: "Column Name" op value
-    let match = trimmed.match(/^["'`](.+?)["'`]\s*(~|==|!=|>=|<=|>|<|contains|starts_with|ends_with)\s*(.+)$/)
+    let match = trimmed.match(/^["'`](.+?)["'`]\s*(~|==|!=|>=|<=|>|<|not\s+in|in|contains|starts_with|ends_with)\s*(.+)$/)
 
     let col: Column | undefined
-    let op: string
-    let val: string
+    let op: string = ''
+    let val: string = ''
 
     if (match) {
       const [, colName, matchOp, matchVal] = match
-      col = columns.find(c => c.name.toLowerCase() === colName.toLowerCase())
+      col = findCol(colName)
       op = matchOp
       val = matchVal
     } else {
-      // Try to match unquoted column names by testing each known column name
+      // Try to match unquoted column names (including aliases) by testing each known name
       let found = false
-      for (const c of sortedCols) {
-        const nameLower = c.name.toLowerCase()
+      for (const entry of allNames) {
+        const nameLower = entry.name.toLowerCase()
         const partLower = trimmed.toLowerCase()
         if (partLower.startsWith(nameLower)) {
-          const rest = trimmed.slice(c.name.length)
-          const opMatch = rest.match(/^\s*(~|==|!=|>=|<=|>|<|contains|starts_with|ends_with)\s*(.+)$/)
+          const rest = trimmed.slice(entry.name.length)
+          const opMatch = rest.match(/^\s*(~|==|!=|>=|<=|>|<|not\s+in|in|contains|starts_with|ends_with)\s*(.+)$/)
           if (opMatch) {
-            col = c
+            col = entry.col
             op = opMatch[1]
             val = opMatch[2]
             found = true
@@ -288,10 +409,10 @@ export function parseFilterExpression(expression: string, columns: Column[]): Fi
       }
       if (!found) {
         // Fallback: single-word column name
-        const fallback = trimmed.match(/^(\w+)\s*(~|==|!=|>=|<=|>|<|contains|starts_with|ends_with)\s*(.+)$/)
+        const fallback = trimmed.match(/^(\w+)\s*(~|==|!=|>=|<=|>|<|not\s+in|in|contains|starts_with|ends_with)\s*(.+)$/)
         if (!fallback) continue
         const [, colName, matchOp, matchVal] = fallback
-        col = columns.find(c => c.name.toLowerCase() === colName.toLowerCase())
+        col = findCol(colName)
         op = matchOp
         val = matchVal
       }
@@ -299,9 +420,11 @@ export function parseFilterExpression(expression: string, columns: Column[]): Fi
 
     if (!col) continue
 
-    const cleanVal = val!.replace(/^["'/]|["'/]$/g, '')
+    const isInOp = /^not\s+in$/i.test(op!) || op === 'in'
+    const cleanVal = isInOp ? val!.trim() : val!.replace(/^["'/]|["'/]$/g, '')
     let operator: FilterOperator = 'equals'
-    switch (op!) {
+    const normalizedOp = op!.replace(/\s+/g, ' ').toLowerCase()
+    switch (normalizedOp) {
       case '==': operator = 'equals'; break
       case '!=': operator = 'not_equals'; break
       case '>': operator = 'greater_than'; break
@@ -312,6 +435,8 @@ export function parseFilterExpression(expression: string, columns: Column[]): Fi
       case 'contains': operator = 'contains'; break
       case 'starts_with': operator = 'starts_with'; break
       case 'ends_with': operator = 'ends_with'; break
+      case 'in': operator = 'in'; break
+      case 'not in': operator = 'not_in'; break
     }
 
     rules.push({

@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useStore } from '../store'
+import { createBlankGrid } from '../lib/utils'
 import { Plus, X } from 'lucide-react'
 
 export function SheetTabs() {
@@ -61,7 +62,10 @@ export function SheetTabs() {
         </div>
       ))}
       <button
-        onClick={() => store.addSheet(`Sheet ${store.sheets.length + 1}`, [], [])}
+        onClick={() => {
+          const { columns, rows } = createBlankGrid(26, 100)
+          store.addSheet(`Sheet ${store.sheets.length + 1}`, columns, rows)
+        }}
         className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-ds-textMuted hover:text-ds-text hover:bg-ds-surface2 transition-colors"
       >
         <Plus size={10} />

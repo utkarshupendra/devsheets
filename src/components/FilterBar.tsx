@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useStore } from '../store'
 import { FilterOperator, Column, Row } from '../types'
-import { parseFilterExpression } from '../lib/utils'
+import { parseFilterExpression, getColumnAliases } from '../lib/utils'
 import { Search, X, ToggleLeft, ToggleRight, ChevronDown } from 'lucide-react'
 
 const OPERATORS: { value: FilterOperator; label: string; symbol: string }[] = [
@@ -18,9 +18,11 @@ const OPERATORS: { value: FilterOperator; label: string; symbol: string }[] = [
   { value: 'is_empty', label: 'Is empty', symbol: '∅' },
   { value: 'not_empty', label: 'Not empty', symbol: '!∅' },
   { value: 'regex', label: 'Regex', symbol: '~' },
+  { value: 'in', label: 'In list', symbol: 'in' },
+  { value: 'not_in', label: 'Not in list', symbol: 'not in' },
 ]
 
-const OP_SYMBOLS = ['==', '!=', '>=', '<=', '>', '<', '~', 'contains', 'starts_with', 'ends_with']
+const OP_SYMBOLS = ['==', '!=', '>=', '<=', '>', '<', '~', 'not in', 'in', 'contains', 'starts_with', 'ends_with']
 
 type SuggestionKind = 'column' | 'operator' | 'value'
 interface Suggestion { kind: SuggestionKind; text: string; detail?: string }
@@ -48,7 +50,7 @@ export function FilterBar() {
 
   const handleExpressionSubmit = () => {
     if (!expression.trim()) return
-    const rules = parseFilterExpression(expression, sheet.columns)
+    const rules = parseFilterExpression(expression, sheet.columns, sheet.rows)
     if (rules.length > 0) {
       store.setFilterRules([...sheet.filterRules, ...rules])
       setExpression('')
@@ -56,11 +58,40 @@ export function FilterBar() {
     }
   }
 
+  // Build alias map: row-1 values → columns (original header names)
+  const aliasMap = useMemo(() => getColumnAliases(sheet.columns, sheet.rows), [sheet.columns, sheet.rows])
+
   // Determine what kind of suggestion to show based on cursor context
   const suggestions = useMemo((): Suggestion[] => {
+    // Build combined name entries: letter columns + aliases from row 1
+    type NameEntry = { displayText: string; insertText: string; col: Column; detail: string }
+    const nameEntries: NameEntry[] = []
+    sheet.columns.forEach(c => {
+      // Find alias (row-1 value) for this column
+      let alias = ''
+      aliasMap.forEach((mappedCol, key) => {
+        if (mappedCol.id === c.id) alias = key
+      })
+      if (alias) {
+        // Show alias as primary suggestion with letter as detail
+        nameEntries.push({ displayText: alias, insertText: alias, col: c, detail: c.name })
+        nameEntries.push({ displayText: c.name, insertText: c.name, col: c, detail: alias })
+      } else {
+        nameEntries.push({ displayText: c.name, insertText: c.name, col: c, detail: c.type })
+      }
+    })
+
     if (!expression) {
-      // Show all column names when empty
-      return sheet.columns.map(c => ({ kind: 'column' as const, text: c.name, detail: c.type }))
+      // Show all column names when empty — prefer aliases
+      const seen = new Set<string>()
+      const results: Suggestion[] = []
+      nameEntries.forEach(e => {
+        if (!seen.has(e.col.id)) {
+          seen.add(e.col.id)
+          results.push({ kind: 'column' as const, text: e.insertText, detail: e.detail })
+        }
+      })
+      return results
     }
 
     // Get the last segment (after the last &&)
@@ -68,22 +99,24 @@ export function FilterBar() {
     const lastPart = (parts[parts.length - 1] || '').trimStart()
 
     // Check if user already typed an operator
-    const sortedCols = [...sheet.columns].sort((a, b) => b.name.length - a.name.length)
+    // Sort all name entries by length descending for matching
+    const sortedEntries = [...nameEntries].sort((a, b) => b.insertText.length - a.insertText.length)
     let matchedCol: Column | undefined
     let afterCol = ''
 
     // Try quoted column name
     const quotedMatch = lastPart.match(/^["'`](.+?)["'`]\s*(.*)$/)
     if (quotedMatch) {
-      matchedCol = sheet.columns.find(c => c.name.toLowerCase() === quotedMatch[1].toLowerCase())
+      const entry = nameEntries.find(e => e.insertText.toLowerCase() === quotedMatch[1].toLowerCase())
+      matchedCol = entry?.col
       afterCol = quotedMatch[2]
     } else {
-      // Try unquoted column name match
-      for (const c of sortedCols) {
-        if (lastPart.toLowerCase().startsWith(c.name.toLowerCase())) {
-          const rest = lastPart.slice(c.name.length)
+      // Try unquoted column name match (including aliases)
+      for (const entry of sortedEntries) {
+        if (lastPart.toLowerCase().startsWith(entry.insertText.toLowerCase())) {
+          const rest = lastPart.slice(entry.insertText.length)
           if (rest === '' || rest.match(/^\s/)) {
-            matchedCol = c
+            matchedCol = entry.col
             afterCol = rest.trim()
             break
           }
@@ -92,10 +125,17 @@ export function FilterBar() {
     }
 
     if (!matchedCol) {
-      // Suggest column names that match what's typed
+      // Suggest column names/aliases that match what's typed
       const typed = lastPart.toLowerCase()
-      const matches = sheet.columns.filter(c => c.name.toLowerCase().includes(typed))
-      return matches.map(c => ({ kind: 'column' as const, text: c.name, detail: c.type }))
+      const seen = new Set<string>()
+      const results: Suggestion[] = []
+      nameEntries.forEach(e => {
+        if (e.insertText.toLowerCase().includes(typed) && !seen.has(e.insertText.toLowerCase())) {
+          seen.add(e.insertText.toLowerCase())
+          results.push({ kind: 'column' as const, text: e.insertText, detail: e.detail })
+        }
+      })
+      return results
     }
 
     // Column matched — check if operator is typed
@@ -120,6 +160,33 @@ export function FilterBar() {
         const opDef = OPERATORS.find(d => d.symbol === o)
         return { kind: 'operator' as const, text: o, detail: opDef?.label ?? '' }
       })
+    }
+
+    // For 'in' / 'not in' — suggest values inside the parenthesized list
+    if (matchedOp === 'in' || matchedOp === 'not in') {
+      const uniqueVals = getUniqueValues(sheet.rows, matchedCol.id, 200)
+      // Parse already-selected values to exclude them
+      const alreadySelected = new Set<string>()
+      const parenContent = afterOp.replace(/^\(/, '').replace(/\)$/, '')
+      if (parenContent) {
+        parenContent.split(',').forEach(v => {
+          let t = v.trim()
+          if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) t = t.slice(1, -1)
+          if (t) alreadySelected.add(t.toLowerCase())
+        })
+      }
+      // Get partial text after the last comma (or after '(')
+      const lastCommaIdx = afterOp.lastIndexOf(',')
+      const parenIdx = afterOp.indexOf('(')
+      let partial = ''
+      if (lastCommaIdx >= 0) {
+        partial = afterOp.slice(lastCommaIdx + 1).trim().replace(/^["']/, '')
+      } else if (parenIdx >= 0) {
+        partial = afterOp.slice(parenIdx + 1).trim().replace(/^["']/, '')
+      }
+      const available = uniqueVals.filter(v => !alreadySelected.has(v.toLowerCase()))
+      const filtered = partial ? available.filter(v => v.toLowerCase().includes(partial.toLowerCase())) : available
+      return filtered.slice(0, 30).map(v => ({ kind: 'value' as const, text: v }))
     }
 
     // Operator matched — suggest unique values
@@ -154,11 +221,11 @@ export function FilterBar() {
           }
         }
       }
-      setExpression(prefix + colPart + ' ' + suggestion.text + ' ')
+      const isInOp = suggestion.text === 'in' || suggestion.text === 'not in'
+      setExpression(prefix + colPart + ' ' + suggestion.text + (isInOp ? ' (' : ' '))
     } else {
-      // Value — wrap in quotes if it has spaces
-      const val = suggestion.text.includes(' ') ? `"${suggestion.text}"` : suggestion.text
-      // Replace everything after operator with the value
+      // Value suggestion
+      const quotedVal = /[,\s]/.test(suggestion.text) ? `"${suggestion.text}"` : `"${suggestion.text}"`
       const sortedCols = [...sheet.columns].sort((a, b) => b.name.length - a.name.length)
       let colPart = ''
       let afterCol = lastPart
@@ -184,7 +251,26 @@ export function FilterBar() {
           break
         }
       }
-      setExpression(prefix + colPart + ' ' + opPart + ' ' + val)
+
+      // Handle 'in' / 'not in' — insert value into the parenthesized list, keep paren open
+      if (opPart === 'in' || opPart === 'not in') {
+        const afterOpStr = afterCol.slice(opPart.length).trim()
+        const openParen = afterOpStr.indexOf('(')
+        if (openParen >= 0) {
+          // Strip existing partial text (after last comma) and closing paren if present
+          const inner = afterOpStr.slice(openParen + 1).replace(/\)$/, '')
+          const lastComma = inner.lastIndexOf(',')
+          const existingPart = lastComma >= 0 ? inner.slice(0, lastComma + 1) + ' ' : ''
+          // Leave paren open with trailing ', ' so user can keep adding values
+          setExpression(prefix + colPart + ' ' + opPart + ' (' + existingPart + quotedVal + ', ')
+        } else {
+          setExpression(prefix + colPart + ' ' + opPart + ' (' + quotedVal + ', ')
+        }
+        // Keep suggestions open so user can add more values (Tab to pick, Enter to submit)
+        return
+      }
+
+      setExpression(prefix + colPart + ' ' + opPart + ' ' + quotedVal)
       setShowSuggestions(false)
     }
     inputRef.current?.focus()
@@ -286,11 +372,18 @@ export function FilterBar() {
           {sheet.filterRules.map(rule => {
             const col = sheet.columns.find(c => c.id === rule.columnId)
             const op = OPERATORS.find(o => o.value === rule.operator)
+            // Show original field name (row-1 alias) if available, else fall back to letter
+            let colAlias = col?.name ?? '?'
+            if (col) {
+              aliasMap.forEach((mappedCol, key) => {
+                if (mappedCol.id === col.id) colAlias = key
+              })
+            }
             return (
               <FilterChip
                 key={rule.id}
                 ruleId={rule.id}
-                columnName={col?.name ?? '?'}
+                columnName={colAlias}
                 columnId={rule.columnId}
                 operator={op?.symbol ?? rule.operator}
                 operatorValue={rule.operator}

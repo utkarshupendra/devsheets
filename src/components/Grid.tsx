@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { useStore } from '../store'
 import { Column, Row, CellValue } from '../types'
+import { colIndexToLetter, generateId, createBlankGrid } from '../lib/utils'
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 
 interface GridProps {
@@ -22,7 +23,7 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
   const [containerHeight, setContainerHeight] = useState(600)
   const [editingCell, setEditingCell] = useState<{ rowId: string; colId: string } | null>(null)
   const [editValue, setEditValue] = useState('')
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; colId: string } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; colId?: string; rowId?: string; rowIndex?: number } | null>(null)
   const [resizing, setResizing] = useState<{ colId: string; startX: number; startWidth: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const isDraggingRef = useRef(false)
@@ -149,6 +150,11 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
     setContextMenu({ x: e.clientX, y: e.clientY, colId })
   }, [])
 
+  const handleRowContext = useCallback((e: React.MouseEvent, rowId: string, rowIndex: number) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, rowId, rowIndex })
+  }, [])
+
   const handleResizeStart = useCallback((e: React.MouseEvent, colId: string, currentWidth: number) => {
     e.stopPropagation()
     e.preventDefault()
@@ -181,10 +187,13 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
         e.preventDefault()
         if (e.shiftKey) {
           const sr = selectionRange ?? { startRow: row, startCol: col, endRow: row, endCol: col }
-          const endRow = Math.min(rows.length - 1, sr.endRow + 1)
+          const endRow = sr.endRow + 1
+          if (endRow >= rows.length) store.ensureRows(endRow + 1)
           store.setSelectionRange({ ...sr, endRow })
         } else {
-          store.selectCell(Math.min(rows.length - 1, row + 1), col)
+          const nextRow = row + 1
+          if (nextRow >= rows.length) store.ensureRows(nextRow + 1)
+          store.selectCell(nextRow, col)
         }
         break
       }
@@ -203,14 +212,30 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
         e.preventDefault()
         if (e.shiftKey) {
           const sr = selectionRange ?? { startRow: row, startCol: col, endRow: row, endCol: col }
-          const endCol = Math.min(columns.length - 1, sr.endCol + 1)
+          const endCol = sr.endCol + 1
+          if (endCol >= columns.length) store.ensureColumns(endCol + 1)
           store.setSelectionRange({ ...sr, endCol })
         } else {
-          store.selectCell(row, Math.min(columns.length - 1, col + 1))
+          const nextCol = col + 1
+          if (nextCol >= columns.length) store.ensureColumns(nextCol + 1)
+          store.selectCell(row, nextCol)
+        }
+        break
+      }
+      case 'Tab': {
+        e.preventDefault()
+        if (e.shiftKey) {
+          if (col > 0) store.selectCell(row, col - 1)
+        } else {
+          const nextCol = col + 1
+          if (nextCol >= columns.length) store.ensureColumns(nextCol + 1)
+          store.selectCell(row, nextCol)
         }
         break
       }
       case 'Enter': {
+        e.preventDefault()
+        if (editingCell) break
         const r = rows[row]
         const c = columns[col]
         if (r && c && !isPivot) {
@@ -291,6 +316,15 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
             store.setSelectionRange({ startRow: row, startCol: col, endRow, endCol })
           })
         }
+        // Start editing on printable key press (like Excel)
+        if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.length === 1 && !isPivot) {
+          const r = rows[row]
+          const c = columns[col]
+          if (r && c) {
+            setEditingCell({ rowId: r.id, colId: c.id })
+            setEditValue(e.key)
+          }
+        }
         break
     }
   }, [selectedCell, editingCell, rows, columns, isPivot, store, handleCellDoubleClick, selectionRange])
@@ -347,6 +381,8 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
           </div>
           {columns.map((col, ci) => {
             const sortRule = sheet.sortRules.find(r => r.columnId === col.id)
+            const letter = colIndexToLetter(ci)
+            const hasCustomName = col.name !== letter
             return (
               <div
                 key={col.id}
@@ -355,9 +391,17 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
                 onClick={() => store.selectEntireColumn(ci, rows.length)}
                 onContextMenu={(e) => handleHeaderContext(e, col.id)}
               >
-                <span className="text-xs font-semibold text-ds-text font-mono truncate">{col.name}</span>
-                <span className="text-[9px] text-ds-textMuted">{col.type}</span>
-                <div className="ml-auto flex items-center">
+                <div className="flex flex-col min-w-0 flex-1">
+                  {hasCustomName ? (
+                    <>
+                      <span className="text-[9px] text-ds-textMuted font-mono leading-none">{letter}</span>
+                      <span className="text-xs font-semibold text-ds-text font-mono truncate leading-tight">{col.name}</span>
+                    </>
+                  ) : (
+                    <span className="text-xs font-semibold text-ds-text font-mono truncate">{letter}</span>
+                  )}
+                </div>
+                <div className="ml-auto flex items-center shrink-0">
                   {sortRule ? (
                     sortRule.direction === 'asc'
                       ? <ArrowUp size={12} className="text-ds-accent" />
@@ -391,6 +435,7 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
                 <div
                   className="w-[50px] shrink-0 flex items-center justify-center text-[10px] text-ds-textMuted border-r border-ds-border/50 font-mono sticky left-0 bg-inherit z-10 cursor-pointer hover:bg-ds-accent/20"
                   onClick={() => store.selectEntireRow(actualIndex, columns.length)}
+                  onContextMenu={(e) => handleRowContext(e, row.id, actualIndex)}
                 >
                   {actualIndex + 1}
                 </div>
@@ -426,7 +471,26 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
                           onChange={e => setEditValue(e.target.value)}
                           onBlur={commitEdit}
                           onKeyDown={e => {
-                            if (e.key === 'Enter') commitEdit()
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              commitEdit()
+                              // Move down after Enter
+                              const nextRow = actualIndex + 1
+                              if (nextRow >= rows.length) store.ensureRows(nextRow + 1)
+                              store.selectCell(nextRow, ci)
+                            }
+                            if (e.key === 'Tab') {
+                              e.preventDefault()
+                              commitEdit()
+                              // Move right (or left with shift) after Tab
+                              if (e.shiftKey) {
+                                if (ci > 0) store.selectCell(actualIndex, ci - 1)
+                              } else {
+                                const nextCol = ci + 1
+                                if (nextCol >= columns.length) store.ensureColumns(nextCol + 1)
+                                store.selectCell(actualIndex, nextCol)
+                              }
+                            }
                             if (e.key === 'Escape') setEditingCell(null)
                           }}
                           className="w-full bg-ds-bg border border-ds-accent rounded px-1 py-0.5 text-xs font-mono text-ds-text outline-none"
@@ -434,12 +498,12 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
                         />
                       ) : (
                         <span className={`text-xs font-mono truncate ${
-                          value === null ? 'text-ds-textMuted/30 italic' :
+                          value === null || value === '' ? '' :
                           col.type === 'number' ? 'text-ds-orange' :
                           col.type === 'boolean' ? 'text-ds-purple' :
                           'text-ds-text'
                         }`}>
-                          {value === null ? 'null' : String(value)}
+                          {value === null ? '' : String(value)}
                         </span>
                       )}
                     </div>
@@ -457,29 +521,59 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
           className="fixed z-50 bg-ds-surface border border-ds-border rounded-lg shadow-xl py-1 min-w-[180px] animate-fade-in"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <CtxItem
-            label="Sort ascending"
-            shortcut="↑"
-            onClick={() => { store.addSortRule(contextMenu.colId, 'asc'); setContextMenu(null) }}
-          />
-          <CtxItem
-            label="Sort descending"
-            shortcut="↓"
-            onClick={() => { store.addSortRule(contextMenu.colId, 'desc'); setContextMenu(null) }}
-          />
-          <div className="h-px bg-ds-border my-1" />
-          <CtxItem
-            label="Filter this column"
-            shortcut="F"
-            onClick={() => { store.addFilterRule(contextMenu.colId, 'contains', ''); setContextMenu(null) }}
-          />
-          <div className="h-px bg-ds-border my-1" />
-          <CtxItem
-            label="Remove column"
-            shortcut="Del"
-            danger
-            onClick={() => { store.removeColumn(contextMenu.colId); setContextMenu(null) }}
-          />
+          {contextMenu.colId ? (
+            <>
+              <CtxItem
+                label="Sort ascending"
+                shortcut="↑"
+                onClick={() => { store.addSortRule(contextMenu.colId!, 'asc'); setContextMenu(null) }}
+              />
+              <CtxItem
+                label="Sort descending"
+                shortcut="↓"
+                onClick={() => { store.addSortRule(contextMenu.colId!, 'desc'); setContextMenu(null) }}
+              />
+              <div className="h-px bg-ds-border my-1" />
+              <CtxItem
+                label="Filter this column"
+                shortcut="F"
+                onClick={() => { store.addFilterRule(contextMenu.colId!, 'contains', ''); setContextMenu(null) }}
+              />
+              <div className="h-px bg-ds-border my-1" />
+              <CtxItem
+                label="Delete column"
+                shortcut="Del"
+                danger
+                onClick={() => { store.removeColumn(contextMenu.colId!); setContextMenu(null) }}
+              />
+            </>
+          ) : (
+            <>
+              <CtxItem
+                label={`Row ${(contextMenu.rowIndex ?? 0) + 1}`}
+                shortcut=""
+                onClick={() => {}}
+              />
+              <div className="h-px bg-ds-border my-1" />
+              <CtxItem
+                label="Insert row above"
+                shortcut=""
+                onClick={() => { store.insertRowAt(contextMenu.rowIndex!); setContextMenu(null) }}
+              />
+              <CtxItem
+                label="Insert row below"
+                shortcut=""
+                onClick={() => { store.insertRowAt(contextMenu.rowIndex! + 1); setContextMenu(null) }}
+              />
+              <div className="h-px bg-ds-border my-1" />
+              <CtxItem
+                label="Delete row"
+                shortcut="Del"
+                danger
+                onClick={() => { store.removeRow(contextMenu.rowId!); setContextMenu(null) }}
+              />
+            </>
+          )}
         </div>
       )}
     </div>

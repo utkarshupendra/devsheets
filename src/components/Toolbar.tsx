@@ -1,26 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { useStore } from '../store'
-import { parseCSV, parseJSON, parseXLSX, rowsToCSV, rowsToJSON, rowsToXLSX } from '../lib/utils'
+import { parseCSV, parseJSON, parseXLSX, rowsToCSV, rowsToJSON, rowsToXLSX, toLetterColumns } from '../lib/utils'
 import { Column, Row } from '../types'
+import { isElectron, electronImport, electronSaveAs, quickSaveToFile } from '../lib/fileManager'
 import {
-  ArrowUpDown, Filter, Table2, Columns3, Plus, Download, Upload,
+  ArrowUpDown, Filter, Table2, Download, Upload,
   Layers, Command, RotateCcw, Save,
 } from 'lucide-react'
-
-// Electron IPC bridge type
-declare global {
-  interface Window {
-    devsheets?: {
-      openFile: () => Promise<{ filePath: string; content: string; name: string; binary: boolean } | null>
-      saveFile: (data: { content: string; filePath?: string; binary?: boolean; suggestedName?: string }) => Promise<string | null>
-    }
-  }
-}
-
-const isElectron = () => !!window.devsheets
-
-// Store file paths per sheet so subsequent saves go to the same file
-const filePaths = new Map<string, string>()
 
 export function Toolbar() {
   const store = useStore()
@@ -31,46 +17,8 @@ export function Toolbar() {
 
   // --- IMPORT ---
   const handleImportClick = async () => {
-    if (isElectron()) {
-      try {
-        const result = await window.devsheets!.openFile()
-        if (!result) return
-        const { filePath, content, name: fileName, binary } = result
-        const name = fileName.replace(/\.\w+$/, '')
-
-        if (fileName.match(/\.xlsx?$/i)) {
-          // Decode base64 to ArrayBuffer
-          const raw = atob(content)
-          const buffer = new Uint8Array(raw.length)
-          for (let i = 0; i < raw.length; i++) buffer[i] = raw.charCodeAt(i)
-          const sheets = parseXLSX(buffer.buffer)
-          sheets.forEach((s, i) => {
-            if (s.columns.length > 0) {
-              store.loadData(s.columns, s.rows, sheets.length > 1 ? `${name} - Sheet ${i + 1}` : name)
-              const newId = useStore.getState().activeSheetId
-              if (i === 0 || sheets.length === 1) {
-                filePaths.set(newId, filePath)
-              }
-            }
-          })
-        } else {
-          let data: { columns: Column[]; rows: Row[] }
-          if (fileName.endsWith('.json')) {
-            data = parseJSON(content)
-          } else {
-            data = parseCSV(content)
-          }
-          store.loadData(data.columns, data.rows, name)
-          const newId = useStore.getState().activeSheetId
-          filePaths.set(newId, filePath)
-        }
-      } catch (err: any) {
-        console.error('Import failed:', err)
-      }
-    } else {
-      // Browser fallback: use file input
-      fileInputRef.current?.click()
-    }
+    const handled = await electronImport(store)
+    if (!handled) fileInputRef.current?.click()
   }
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -86,7 +34,8 @@ export function Toolbar() {
           const sheets = parseXLSX(buffer)
           sheets.forEach((s, i) => {
             if (s.columns.length > 0) {
-              store.loadData(s.columns, s.rows, sheets.length > 1 ? `${name} - Sheet ${i + 1}` : name)
+              const converted = toLetterColumns(s)
+              store.loadData(converted.columns, converted.rows, sheets.length > 1 ? `${name} - Sheet ${i + 1}` : name)
             }
           })
         } catch (err) {
@@ -105,7 +54,8 @@ export function Toolbar() {
           } else {
             data = parseCSV(text)
           }
-          store.loadData(data.columns, data.rows, name)
+          const converted = toLetterColumns(data)
+          store.loadData(converted.columns, converted.rows, name)
         } catch (err) {
           console.error('Failed to parse file:', err)
         }
@@ -115,22 +65,7 @@ export function Toolbar() {
     e.target.value = ''
   }
 
-  // --- SAVE helpers ---
-  const getContentForSave = (format: 'csv' | 'json' | 'xlsx'): { content: string; binary: boolean } => {
-    if (format === 'csv') {
-      return { content: rowsToCSV(sheet.rows, sheet.columns), binary: false }
-    } else if (format === 'json') {
-      return { content: rowsToJSON(sheet.rows, sheet.columns), binary: false }
-    } else {
-      // XLSX → base64
-      const buffer = rowsToXLSX(sheet.rows, sheet.columns, sheet.name)
-      const bytes = new Uint8Array(buffer)
-      let binaryStr = ''
-      for (let i = 0; i < bytes.length; i++) binaryStr += String.fromCharCode(bytes[i])
-      return { content: btoa(binaryStr), binary: true }
-    }
-  }
-
+  // --- SAVE ---
   const buildBlob = (format: 'csv' | 'json' | 'xlsx'): Blob => {
     if (format === 'csv') {
       return new Blob([rowsToCSV(sheet.rows, sheet.columns)], { type: 'text/csv' })
@@ -144,21 +79,11 @@ export function Toolbar() {
 
   const saveAs = async (format: 'csv' | 'json' | 'xlsx') => {
     setShowSaveMenu(false)
-    const ext = format === 'csv' ? '.csv' : format === 'json' ? '.json' : '.xlsx'
-
     if (isElectron()) {
-      const { content, binary } = getContentForSave(format)
-      const savedPath = await window.devsheets!.saveFile({
-        content,
-        binary,
-        suggestedName: `${sheet.name}${ext}`,
-      })
-      if (savedPath) {
-        filePaths.set(useStore.getState().activeSheetId, savedPath)
-      }
+      await electronSaveAs(sheet.rows, sheet.columns, sheet.name, format)
     } else {
-      // Browser fallback: download
       const blob = buildBlob(format)
+      const ext = format === 'csv' ? '.csv' : format === 'json' ? '.json' : '.xlsx'
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -168,22 +93,9 @@ export function Toolbar() {
     }
   }
 
-  // Quick save: writes to existing path, or shows Save As menu
   const quickSave = async () => {
-    const sheetId = useStore.getState().activeSheetId
-    const fp = filePaths.get(sheetId)
-    if (fp && isElectron()) {
-      const ext = fp.toLowerCase()
-      const format: 'csv' | 'json' | 'xlsx' = ext.endsWith('.json') ? 'json' : ext.endsWith('.xlsx') || ext.endsWith('.xls') ? 'xlsx' : 'csv'
-      const { content, binary } = getContentForSave(format)
-      try {
-        await window.devsheets!.saveFile({ content, binary, filePath: fp })
-      } catch {
-        setShowSaveMenu(true)
-      }
-    } else {
-      setShowSaveMenu(true)
-    }
+    const saved = await quickSaveToFile(sheet.rows, sheet.columns, sheet.name)
+    if (!saved) setShowSaveMenu(true)
   }
 
   // Close save menu on outside click
@@ -303,17 +215,6 @@ export function Toolbar() {
         label="Pipeline"
         active={store.showPipeline}
         onClick={() => store.togglePipeline()}
-      />
-
-      <ToolButton
-        icon={<Plus size={14} />}
-        label="Add Col"
-        onClick={() => store.addColumn(`col_${sheet.columns.length + 1}`, 'string')}
-      />
-      <ToolButton
-        icon={<Columns3 size={14} />}
-        label="Add Row"
-        onClick={() => store.addRow()}
       />
 
       <div className="flex-1" />

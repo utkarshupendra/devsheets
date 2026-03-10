@@ -4,7 +4,7 @@ import {
   AppState, Sheet, SortRule, FilterRule, FilterOperator, PivotConfig,
   Column, Row, CellValue, PipelineStep,
 } from './types'
-import { generateId } from './lib/utils'
+import { generateId, colIndexToLetter } from './lib/utils'
 
 // --- Undo/Redo history system ---
 type SheetSnapshot = { columns: Column[]; rows: Row[]; sortRules: SortRule[]; filterRules: FilterRule[]; pivotConfig: PivotConfig | null }
@@ -54,6 +54,9 @@ interface Actions {
   // Row management
   addRow: () => void
   removeRow: (rowId: string) => void
+  insertRowAt: (index: number) => void
+  ensureRows: (minCount: number) => void
+  ensureColumns: (minCount: number) => void
 
   // Undo/Redo
   undo: () => void
@@ -190,6 +193,41 @@ export const useStore = create<AppState & Actions>()(
       if (!sheet) return
       pushHistory(sheet)
       sheet.rows = sheet.rows.filter(r => r.id !== rowId)
+    }),
+    insertRowAt: (index) => set((s) => {
+      const sheet = s.sheets.find(sh => sh.id === s.activeSheetId)
+      if (!sheet) return
+      pushHistory(sheet)
+      const cells: Record<string, CellValue> = {}
+      sheet.columns.forEach(col => { cells[col.id] = null })
+      const newRow = { id: generateId(), cells }
+      sheet.rows.splice(index, 0, newRow)
+    }),
+    ensureRows: (minCount) => set((s) => {
+      const sheet = s.sheets.find(sh => sh.id === s.activeSheetId)
+      if (!sheet || sheet.rows.length >= minCount) return
+      const toAdd = minCount - sheet.rows.length
+      for (let i = 0; i < toAdd; i++) {
+        const cells: Record<string, CellValue> = {}
+        sheet.columns.forEach(col => { cells[col.id] = null })
+        sheet.rows.push({ id: generateId(), cells })
+      }
+    }),
+    ensureColumns: (minCount) => set((s) => {
+      const sheet = s.sheets.find(sh => sh.id === s.activeSheetId)
+      if (!sheet || sheet.columns.length >= minCount) return
+      const startIdx = sheet.columns.length
+      const toAdd = minCount - sheet.columns.length
+      for (let i = 0; i < toAdd; i++) {
+        const col: Column = {
+          id: generateId(),
+          name: colIndexToLetter(startIdx + i),
+          type: 'string',
+          width: 120,
+        }
+        sheet.columns.push(col)
+        sheet.rows.forEach(row => { row.cells[col.id] = null })
+      }
     }),
 
     addSortRule: (columnId, direction) => set((s) => {
