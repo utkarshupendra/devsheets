@@ -43,12 +43,6 @@ Excel's sort, filter, and pivot features hide state and are hard to compose. Dev
 
 ## Installation
 
-### From DMG (macOS)
-
-1. Download `DevSheets-0.1.0-arm64.dmg` from the `release/` folder
-2. Open the DMG and drag **DevSheets** to Applications
-3. Right-click → **Open** on first launch (bypasses Gatekeeper since the app isn't code-signed)
-
 ### Build from source
 
 ```bash
