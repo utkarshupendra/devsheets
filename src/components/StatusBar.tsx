@@ -73,8 +73,6 @@ export function StatusBar({
           )}
         </div>
       )}
-
-      <span className="font-mono">DevSheets v0.1.0</span>
     </div>
   )
 }
