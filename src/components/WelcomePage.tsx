@@ -1,9 +1,9 @@
 import React, { useRef } from 'react'
 import { useStore } from '../store'
-import { parseCSV, parseJSON, parseXLSX, toLetterColumns } from '../lib/utils'
+import { parseCSV, parseJSON, parseXLSX, toLetterColumns, createBlankGrid, generateSampleData } from '../lib/utils'
 import { Column, Row } from '../types'
 import { Logo } from './Logo'
-import { Upload, FileJson, FileSpreadsheet, Plus } from 'lucide-react'
+import { Upload, FileJson, FileSpreadsheet, Plus, Sun, Moon, Database } from 'lucide-react'
 import { isElectron, electronImport } from '../lib/fileManager'
 import { getModifierSymbol } from '../lib/platform'
 
