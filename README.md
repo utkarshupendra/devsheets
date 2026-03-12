@@ -43,6 +43,24 @@ Excel's sort, filter, and pivot features hide state and are hard to compose. Dev
 
 ## Installation
 
+### Download Pre-built Binaries
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/utkarshupendra/devsheets/releases):
+
+- **Windows**: `DevSheets-Setup-0.1.1.exe`
+- **macOS**: `DevSheets-0.1.1.dmg` (Intel) or `DevSheets-0.1.1-arm64.dmg` (Apple Silicon)
+- **Linux**: `DevSheets-0.1.1.AppImage`
+
+#### Windows Installation Note
+
+When installing on Windows, you may see a SmartScreen warning because the app is not yet code-signed. This is normal for new open-source applications.
+
+**To install:**
+1. Click **"More info"** on the SmartScreen warning dialog
+2. Click **"Run anyway"**
+
+The app is safe — you can verify the source code on GitHub. Code signing will be added in future releases as the project matures.
+
 ### Build from source
 
 ```bash
@@ -58,7 +76,7 @@ npm run electron:dev
 
 # Package as native app (.dmg on macOS, .exe on Windows, .AppImage on Linux)
 npm run electron:build
-# Output: release/DevSheets-0.1.0-arm64.dmg
+# Output: release/DevSheets-0.1.1-arm64.dmg
 ```
 
 ---
