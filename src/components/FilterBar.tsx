@@ -226,7 +226,14 @@ export function FilterBar() {
     } else {
       // Value suggestion
       const quotedVal = /[,\s]/.test(suggestion.text) ? `"${suggestion.text}"` : `"${suggestion.text}"`
-      const sortedCols = [...sheet.columns].sort((a, b) => b.name.length - a.name.length)
+      
+      // Build list of all possible column names (letters + aliases) sorted by length
+      type NameEntry = { name: string; col: Column }
+      const allNames: NameEntry[] = []
+      sheet.columns.forEach(c => allNames.push({ name: c.name, col: c }))
+      aliasMap.forEach((col, alias) => allNames.push({ name: alias, col }))
+      allNames.sort((a, b) => b.name.length - a.name.length)
+      
       let colPart = ''
       let afterCol = lastPart
 
@@ -235,10 +242,11 @@ export function FilterBar() {
         colPart = quotedMatch[1]
         afterCol = quotedMatch[2]
       } else {
-        for (const c of sortedCols) {
-          if (lastPart.toLowerCase().startsWith(c.name.toLowerCase())) {
-            colPart = lastPart.slice(0, c.name.length)
-            afterCol = lastPart.slice(c.name.length).trim()
+        // Try to match column name or alias
+        for (const entry of allNames) {
+          if (lastPart.toLowerCase().startsWith(entry.name.toLowerCase())) {
+            colPart = lastPart.slice(0, entry.name.length)
+            afterCol = lastPart.slice(entry.name.length).trim()
             break
           }
         }
