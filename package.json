@@ -8,7 +8,7 @@
     "build": "tsc && vite build && electron-builder",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm exec vite build && electron-builder"
+    "electron:build": "vite build && electron-builder"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
