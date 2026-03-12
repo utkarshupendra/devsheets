@@ -268,7 +268,7 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
         break
       default:
         // Copy (Cmd+C / Ctrl+C)
-        if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
           e.preventDefault()
           const sr = selectionRange ?? { startRow: row, startCol: col, endRow: row, endCol: col }
           const minR = Math.min(sr.startRow, sr.endRow)
@@ -289,7 +289,7 @@ export function Grid({ columns, rows, selectedCell, isPivot }: GridProps) {
           navigator.clipboard.writeText(lines.join('\n'))
         }
         // Paste (Cmd+V / Ctrl+V)
-        if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !isPivot) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v' && !isPivot) {
           e.preventDefault()
           navigator.clipboard.readText().then(text => {
             if (!text.trim()) return

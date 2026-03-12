@@ -77,15 +77,15 @@ export default function App() {
   }, [sheet?.selectionRange, displayRows, displayColumns])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault()
       store.toggleCommandPalette()
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
       e.preventDefault()
       store.undo()
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && e.shiftKey) {
       e.preventDefault()
       store.redo()
     }

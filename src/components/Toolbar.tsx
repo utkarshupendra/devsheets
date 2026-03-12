@@ -114,7 +114,7 @@ export function Toolbar() {
   // Cmd+S / Ctrl+S → quick save (in-place if path exists, otherwise show menu)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
         quickSave()
       }
