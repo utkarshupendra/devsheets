@@ -51,15 +51,34 @@ Download the latest release for your platform from [GitHub Releases](https://git
 - **macOS**: `DevSheets-0.1.1.dmg` (Intel) or `DevSheets-0.1.1-arm64.dmg` (Apple Silicon)
 - **Linux**: `DevSheets-0.1.1.AppImage`
 
-#### Windows Installation Note
+#### Installation Notes
+
+**Windows (SmartScreen Warning)**
 
 When installing on Windows, you may see a SmartScreen warning because the app is not yet code-signed. This is normal for new open-source applications.
 
-**To install:**
+To install:
 1. Click **"More info"** on the SmartScreen warning dialog
 2. Click **"Run anyway"**
 
-The app is safe — you can verify the source code on GitHub. Code signing will be added in future releases as the project matures.
+**macOS (Gatekeeper Warning)**
+
+macOS will block the app on first launch because it's not notarized by Apple.
+
+To install:
+1. Right-click (or Control+click) the app and select **"Open"**
+2. Click **"Open"** in the confirmation dialog
+3. Alternatively: System Settings → Privacy & Security → Click **"Open Anyway"**
+
+**Linux**
+
+No security warnings. You may need to make the AppImage executable:
+```bash
+chmod +x DevSheets-0.1.1.AppImage
+./DevSheets-0.1.1.AppImage
+```
+
+The apps are safe — you can verify the source code on GitHub. Code signing will be added in future releases as the project matures.
 
 ### Build from source
 
