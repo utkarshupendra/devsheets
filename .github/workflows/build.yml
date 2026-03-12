@@ -38,7 +38,7 @@ jobs:
         run: npm ci
 
       - name: Type check
-        run: ./node_modules/.bin/tsc --noEmit
+        run: npx -p typescript tsc --noEmit
 
       - name: Build & package
         env:
