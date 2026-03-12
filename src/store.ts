@@ -386,8 +386,8 @@ export const useStore = create<AppState & Actions>()(
       sheet.pivotConfig = snapshot.pivotConfig
     }),
 
-    redo: () => set((s) => {
-      const sheet = s.sheets.find(sh => sh.id === s.activeSheetId)
+    redo: () => set((s: AppState & Actions) => {
+      const sheet = s.sheets.find((sh: Sheet) => sh.id === s.activeSheetId)
       if (!sheet) return
       const stack = redoStacks.get(sheet.id)
       if (!stack || stack.length === 0) return
@@ -442,6 +442,6 @@ function applyTheme(theme: 'dark' | 'light') {
 applyTheme(useStore.getState().theme)
 
 // Re-apply whenever theme changes
-useStore.subscribe((state, prev) => {
+useStore.subscribe((state: AppState & Actions, prev: AppState & Actions) => {
   if (state.theme !== prev.theme) applyTheme(state.theme)
 })
