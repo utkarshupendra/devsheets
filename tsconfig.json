@@ -19,7 +19,8 @@
     "paths": {
       "@/*": ["src/*"]
     },
-    "types": []
+    "typeRoots": ["./node_modules/@types"],
+    "types": ["node", "react", "react-dom"]
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
