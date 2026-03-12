@@ -37,8 +37,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Debug - Check vite
-        run: ls -la node_modules/.bin/ | grep vite || echo "vite not found in .bin"
+      - name: Debug - Check node_modules
+        run: |
+          ls -la node_modules/.bin/ || echo "No .bin directory"
+          which vite || echo "vite not in PATH"
 
       - name: Build & package
         env:
