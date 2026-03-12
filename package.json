@@ -4,11 +4,11 @@
   "description": "A developer-friendly alternative to Excel",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "./node_modules/.bin/vite",
-    "build": "tsc && ./node_modules/.bin/vite build && electron-builder",
-    "preview": "./node_modules/.bin/vite preview",
-    "electron:dev": "concurrently \"./node_modules/.bin/vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "./node_modules/.bin/vite build && electron-builder"
+    "dev": "vite",
+    "build": "tsc && vite build && electron-builder",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm exec vite build && electron-builder"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
