@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { parseCSV, parseJSON, parseXLSX, rowsToCSV, rowsToJSON, rowsToXLSX, toLetterColumns } from '../lib/utils'
 import { Column, Row } from '../types'
 import { isElectron, electronImport, electronSaveAs, quickSaveToFile } from '../lib/fileManager'
+import { getModifierSymbol } from '../lib/platform'
 import {
   ArrowUpDown, Filter, Table2, Download, Upload,
   Layers, Command, RotateCcw, Save,
@@ -233,7 +234,7 @@ export function Toolbar() {
 
       <ToolButton
         icon={<Command size={14} />}
-        label="⌘K"
+        label={`${getModifierSymbol()}K`}
         onClick={() => store.toggleCommandPalette()}
       />
     </div>

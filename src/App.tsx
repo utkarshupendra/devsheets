@@ -12,6 +12,7 @@ import { SheetTabs } from './components/SheetTabs'
 import { WelcomePage } from './components/WelcomePage'
 import { Logo } from './components/Logo'
 import { applySortRules, applyFilterRules, computePivot } from './lib/utils'
+import { getModifierSymbol } from './lib/platform'
 import { Sun, Moon } from 'lucide-react'
 
 export default function App() {
@@ -119,7 +120,7 @@ export default function App() {
           {store.theme === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
         </button>
         <span className="no-drag text-[10px] text-ds-textMuted bg-ds-surface2 px-2 py-0.5 rounded border border-ds-border">
-          ⌘K
+          {getModifierSymbol()}K
         </span>
       </div>
 

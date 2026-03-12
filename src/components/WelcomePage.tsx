@@ -1,10 +1,11 @@
 import React, { useRef } from 'react'
 import { useStore } from '../store'
-import { parseCSV, parseJSON, parseXLSX, generateSampleData, generateId, createBlankGrid, toLetterColumns } from '../lib/utils'
-import { electronImport } from '../lib/fileManager'
-import { Upload, Plus, Database, Sun, Moon } from 'lucide-react'
-import { Logo } from './Logo'
+import { parseCSV, parseJSON, parseXLSX, toLetterColumns } from '../lib/utils'
 import { Column, Row } from '../types'
+import { Logo } from './Logo'
+import { Upload, FileJson, FileSpreadsheet, Plus } from 'lucide-react'
+import { isElectron, electronImport } from '../lib/fileManager'
+import { getModifierSymbol } from '../lib/platform'
 
 export function WelcomePage() {
   const store = useStore()
@@ -153,7 +154,7 @@ export function WelcomePage() {
 
           <div className="mt-8 pt-6 border-t border-ds-border/50">
             <div className="flex items-center justify-between text-[10px] text-ds-textMuted">
-              <span>⌘K for command palette</span>
+              <span>{getModifierSymbol()}K for command palette</span>
               <span>Arrow keys to navigate • Enter to edit</span>
             </div>
           </div>
